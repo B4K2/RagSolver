@@ -8,8 +8,5 @@ agent model/.env
 temp.py
 test.py
 
-# Ignore Chroma database directory
-chroma_db_standard/
-
 # Ignore Python cache files
 __pycache__/
