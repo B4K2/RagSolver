@@ -1,0 +1,19 @@
+[project]
+name = "rag-agent"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "chromadb>=1.0.7",
+    "flask>=3.1.0",
+    "google-adk>=0.3.0",
+    "langchain>=0.3.24",
+    "marker-pdf>=1.6.2",
+    "pillow>=10.4.0",
+    "sentence-transformers>=4.1.0",
+    "torch>=2.7.0",
+    "torchaudio>=2.7.0",
+    "torchvision>=0.22.0",
+    "transformers>=4.51.3",
+]
