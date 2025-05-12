@@ -2,7 +2,7 @@
 .venv/
 
 # Ignore environment variable files
-agent model/.env
+.env
 
 # Ignore specific Python files
 temp.py

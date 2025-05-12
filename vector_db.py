@@ -89,16 +89,38 @@ except Exception as e:
     print(f"Error initializing Langchain text splitter: {e}")
     exit(1)
 
-# --- Embedder Configuration (Sentence Transformers) ---
+# --- Embedder Configuration (Gemini) ---
 try:
-    EMBEDDER_MODEL_NAME = "sentence-transformers/paraphrase-multilingual-mpnet-base-v2"
-    embedder = SentenceTransformer(EMBEDDER_MODEL_NAME, device=DEVICE)
-    print(f"Using Sentence Transformer Embedder: {EMBEDDER_MODEL_NAME} on device {DEVICE}")
+    from google import genai
+    from google.genai import types as genai_types
+    from dotenv import load_dotenv
+
+    load_dotenv()
+    GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+    GEMINI_EMBEDDER_MODEL_ID = "embedding-001"
+
+    if not GEMINI_API_KEY:
+        raise ValueError("GEMINI_API_KEY is not set. Cannot initialize Gemini client.")
+
+    gemini_client = genai.Client(api_key=GEMINI_API_KEY)
+    print(f"Using Gemini Embedder: {GEMINI_EMBEDDER_MODEL_ID}")
+
+    def get_gemini_embeddings(texts):
+        response = gemini_client.models.embed_content(
+            model=GEMINI_EMBEDDER_MODEL_ID,
+            contents=texts,
+            config=genai_types.EmbedContentConfig(task_type="RETRIEVAL_DOCUMENT")
+        )
+        if hasattr(response, 'embeddings') and response.embeddings:
+            return [list(emb.values) for emb in response.embeddings]
+        else:
+            raise ValueError("Unexpected response structure from Gemini embed_content.")
+
 except ImportError:
-    print("sentence-transformers library not found. Install it: pip install sentence-transformers")
+    print("google-generativeai library not found. Install it: pip install google-generativeai")
     exit(1)
 except Exception as e:
-    print(f"Error initializing Sentence Transformer: {e}")
+    print(f"Error initializing Gemini Embedder: {e}")
     exit(1)
 
 # --- Image Captioning Model Initialization ---
@@ -135,23 +157,18 @@ except Exception as e:
 
 # Get embedding dimension (important for some Chroma setups, good practice)
 try:
-    embedding_dim = embedder.get_sentence_embedding_dimension()
-    print(f"Detected text embedding dimension: {embedding_dim}")
-except Exception:
-     try:
-         dummy_embedding = embedder.encode("test")
-         embedding_dim = len(dummy_embedding)
-         print(f"Detected text embedding dimension via dummy text: {embedding_dim}")
-     except Exception as e2:
-         print(f"Could not determine embedding dimension: {e2}. Proceeding without dimension check.")
-         embedding_dim = None # Allow proceeding without explicit dimension
+    embedding_dim = 768  # Default dimension for Gemini embedding-001
+    print(f"Using embedding dimension: {embedding_dim}")
+except Exception as e:
+    print(f"Error determining embedding dimension: {e}")
+    exit(1)
 
 # Get or create the collection
 try:
     collection = client.get_or_create_collection(
         name=COLLECTION_NAME,
-        metadata={"hnsw:space": "cosine", # Good default for sentence transformers
-                  "embedding_model": EMBEDDER_MODEL_NAME,
+        metadata={"hnsw:space": "cosine",  # Good default for sentence transformers
+                  "embedding_model": GEMINI_EMBEDDER_MODEL_ID,
                   "captioning_model": CAPTION_MODEL_NAME}
         # embedding_function=None # We provide embeddings manually
     )
@@ -341,21 +358,20 @@ print(f"--> Total items prepared for embedding (text chunks + image captions): {
 
 # --- Embedding and Adding to ChromaDB ---
 if all_texts_to_embed:
-    print(f"\nEmbedding {len(all_texts_to_embed)} text chunks and image captions using {EMBEDDER_MODEL_NAME}...")
+    print(f"\nEmbedding {len(all_texts_to_embed)} text chunks and image captions using Gemini model...")
     try:
         # Embed ALL texts (chunks and captions) together
-        embeddings_np = embedder.encode(all_texts_to_embed, show_progress_bar=True, batch_size=128) # Adjusted batch size
-        embeddings = embeddings_np.tolist()
-        print("Embeddings generated successfully.")
+        all_embeddings = get_gemini_embeddings(all_texts_to_embed)
+        print("Generated embeddings using Gemini model.")
 
         # Verify list lengths
-        if not (len(all_ids) == len(embeddings) == len(all_metadatas) == len(all_texts_to_embed)):
+        if not (len(all_ids) == len(all_embeddings) == len(all_metadatas) == len(all_texts_to_embed)):
              print("\nCRITICAL ERROR: Mismatch in list lengths before adding to ChromaDB!")
-             print(f"IDs: {len(all_ids)}, Embeddings: {len(embeddings)}, Metadatas: {len(all_metadatas)}, Documents: {len(all_texts_to_embed)}")
+             print(f"IDs: {len(all_ids)}, Embeddings: {len(all_embeddings)}, Metadatas: {len(all_metadatas)}, Documents: {len(all_texts_to_embed)}")
              exit(1)
 
     except Exception as e:
-        print(f"Error generating embeddings: {e}")
+        print(f"Error generating embeddings with Gemini: {e}")
         exit(1)
 
     print(f"\nAdding {len(all_ids)} items to ChromaDB collection '{COLLECTION_NAME}'...")
@@ -365,7 +381,7 @@ if all_texts_to_embed:
              start_idx = i
              end_idx = min(i + batch_size, len(all_ids))
              ids_batch = all_ids[start_idx:end_idx]
-             embeddings_batch = embeddings[start_idx:end_idx]
+             embeddings_batch = all_embeddings[start_idx:end_idx]
              metadatas_batch = all_metadatas[start_idx:end_idx]
              documents_batch = all_texts_to_embed[start_idx:end_idx] # Use the combined text list
 
